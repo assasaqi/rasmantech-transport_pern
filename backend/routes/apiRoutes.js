@@ -75,7 +75,12 @@ router.delete('/vehicles/:id', authenticateToken, isAdmin, getHandler(() => vehi
 // ==========================================
 // 5. BOOKING ROUTES
 // ==========================================
+// Rute khusus Admin (Melihat Semua Booking)
 router.get('/bookings', authenticateToken, isAdmin, getHandler(() => bookingController, 'getAllBookings', 'getBookings'));
+
+// Rute khusus Client (Melihat Booking Milik Sendiri) - BARU
+router.get('/client/bookings', authenticateToken, getHandler(() => bookingController, 'getClientBookings'));
+
 router.get('/bookings/code/:code', getHandler(() => bookingController, 'getBookingByCode'));
 router.post('/bookings', getHandler(() => bookingController, 'createBooking'));
 router.put('/bookings/:id/status', authenticateToken, isAdmin, getHandler(() => bookingController, 'updateBookingStatus'));

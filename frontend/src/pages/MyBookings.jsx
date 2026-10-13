@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
+import { AlertCircle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 // Import komponen BookingCard
 import BookingCard from "@/components/booking/BookingCard";
 
-// Import resmi dari src/services/api.js
-import API, { getBookings } from '../services/api';
+// Import resmi getClientBookings dari src/services/api.js
+import { getClientBookings } from '../services/api';
 
 const MyBookings = () => {
   const navigate = useNavigate();
@@ -20,7 +21,8 @@ const MyBookings = () => {
   const fetchBookingsData = async () => {
     setLoading(true);
 
-    const token = localStorage.getItem('token') || localStorage.getItem('clientToken');
+    // 1. Utamakan clientToken agar tidak bentrok dengan token lain
+    const token = localStorage.getItem('clientToken') || localStorage.getItem('token');
 
     if (!token) {
       navigate('/login', { replace: true });
@@ -28,16 +30,8 @@ const MyBookings = () => {
     }
 
     try {
-      let response;
-      try {
-        response = await getBookings();
-      } catch (err) {
-        if (err.response?.status === 404) {
-          response = await API.get('/client/bookings');
-        } else {
-          throw err;
-        }
-      }
+      // 2. Panggil API khusus Client
+      const response = await getClientBookings();
 
       const data = response.data?.data || response.data?.bookings || response.data || [];
 
@@ -49,15 +43,30 @@ const MyBookings = () => {
     } catch (error) {
       console.error('Gagal mengambil data booking dari API:', error);
 
+      // 3. Tangani 404 Not Found -> Redirect ke Halaman NotFound
+      if (error.response?.status === 404) {
+        navigate('/not-found', { replace: true });
+        return;
+      }
+
+      // 4. Tangani 401 / 403 (Sesi Habis / Token Tidak Valid)
       if (error.response?.status === 401 || error.response?.status === 403) {
-        localStorage.removeItem('token');
         localStorage.removeItem('clientToken');
+        localStorage.removeItem('token');
+        localStorage.removeItem('client_user');
+        sessionStorage.clear();
+
         navigate('/login', { replace: true });
         return;
-      } else {
-        const errorMsg = error.response?.data?.message || 'Gagal memuat riwayat pesanan dari server.';
-        showMessage('error', errorMsg);
       }
+
+      // 5. Tampilkan pesan ramah pengguna tanpa kode error teknis
+      const errorMsg =
+        error.userFriendlyMessage ||
+        error.response?.data?.message ||
+        'Gagal memuat riwayat pesanan. Silakan coba beberapa saat lagi.';
+
+      showMessage('error', errorMsg);
       setBookings([]);
     } finally {
       setLoading(false);
@@ -76,7 +85,7 @@ const MyBookings = () => {
   const toggleExpand = (id) => {
     setExpandedBookingIds((prev) => ({
       ...prev,
-      [id]: !prev[id]
+      [id]: !prev[id],
     }));
   };
 
@@ -84,17 +93,23 @@ const MyBookings = () => {
     <div className="min-h-screen bg-[#f3f6f9] font-sans pt-20 sm:pt-24 pb-12">
       <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
 
-        {/* Toast Alert */}
+        {/* Toast Alert dengan Icon AlertCircle */}
         {message.text && (
           <div
-            className={`p-3 sm:p-4 mb-4 rounded-xl shadow-sm text-xs sm:text-sm flex items-center justify-between transition-all ${
+            className={`p-3.5 sm:p-4 mb-4 rounded-xl shadow-sm text-xs sm:text-sm flex items-center justify-between gap-3 transition-all ${
               message.type === 'error'
                 ? 'bg-rose-600 text-white'
                 : 'bg-emerald-600 text-white'
             }`}
           >
-            <span>{message.text}</span>
-            <button onClick={() => setMessage({ type: '', text: '' })} className="font-bold text-lg leading-none">
+            <div className="flex items-center gap-2.5">
+              <AlertCircle className="w-5 h-5 flex-shrink-0" />
+              <span className="font-medium">{message.text}</span>
+            </div>
+            <button
+              onClick={() => setMessage({ type: '', text: '' })}
+              className="font-bold text-lg leading-none opacity-80 hover:opacity-100 transition-opacity cursor-pointer"
+            >
               ×
             </button>
           </div>

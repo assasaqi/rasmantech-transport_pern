@@ -31,7 +31,9 @@ const Login = () => {
                 }
             }
         } catch (err) {
-            setMessage({ type: 'error', text: err.response?.data?.message || 'Terjadi kesalahan sistem.' });
+            // Mengutamakan pesan ramah dari interceptor atau pesan backend
+            const errorMsg = err.userFriendlyMessage || err.response?.data?.message || 'Terjadi kesalahan sistem. Silakan coba lagi.';
+            setMessage({ type: 'error', text: errorMsg });
         } finally {
             setLoading(false);
         }
@@ -52,15 +54,17 @@ const Login = () => {
                     </p>
                 </div>
 
+                {/* Toast Alert dengan Icon */}
                 {message.text && (
                     <div
-                        className={`p-3 rounded-xl text-xs font-bold mb-4 border text-center ${
+                        className={`p-3 rounded-xl text-xs font-bold mb-4 border flex items-center justify-center gap-2 ${
                             message.type === 'error'
                                 ? 'bg-rose-50 text-rose-700 border-rose-200'
                                 : 'bg-emerald-50 text-emerald-700 border-emerald-200'
                         }`}
                     >
-                        {message.text}
+                        <i className={`fa-solid ${message.type === 'error' ? 'fa-circle-exclamation' : 'fa-circle-check'}`}></i>
+                        <span>{message.text}</span>
                     </div>
                 )}
 

@@ -146,7 +146,7 @@ const getBookingByIdWithInclude = async (id) => {
   }
 };
 
-// 1. Ambil Semua Data Booking (Read All)
+// 1. Ambil Semua Data Booking (Read All - Khusus Admin)
 exports.getAllBookings = async (req, res) => {
   try {
     const bookings = await fetchBookingsWithInclude({ orderBy: { id: 'desc' } });
@@ -180,7 +180,8 @@ exports.createBooking = async (req, res) => {
       pickup_time, pickupTime,
       pickup_address, pickupAddress, pickup_location,
       notes,
-      total_price, totalPrice
+      total_price, totalPrice,
+      user_id, userId
     } = req.body;
 
     const name = customer_name || customerName;
@@ -201,6 +202,7 @@ exports.createBooking = async (req, res) => {
     const validVehicleId = (vehicle_id || vehicleId) ? Number(vehicle_id || vehicleId) : null;
     const validRouteId = (route_id || routeId) ? Number(route_id || routeId) : null;
     const validTourPackageId = (tour_package_id || tourPackageId) ? Number(tour_package_id || tourPackageId) : null;
+    const activeUserId = req.user?.id || user_id || userId ? Number(req.user?.id || user_id || userId) : null;
 
     const parsedDate = new Date(rawDate);
 
@@ -235,7 +237,7 @@ exports.createBooking = async (req, res) => {
         bookingCode: booking_code,
         customerName: name,
         customerPhone: phone,
-        customerEmail: customer_email || customerEmail || null,
+        customerEmail: customer_email || customerEmail || req.user?.email || null,
         serviceType: parseServiceType(service_type || serviceType),
         vehicleId: validVehicleId,
         routeId: validRouteId,
@@ -246,7 +248,8 @@ exports.createBooking = async (req, res) => {
         pickupAddress: address || '',
         notes: notes || '',
         totalPrice: price ? parseFloat(price) : 0,
-        status: 'pending'
+        status: 'pending',
+        ...(activeUserId && { userId: activeUserId })
       };
 
       return await tx.booking.create({ data: bookingData });
@@ -282,7 +285,7 @@ exports.createBooking = async (req, res) => {
     if (error.code === 'P2003') {
       return res.status(400).json({
         success: false,
-        message: 'Gagal membuat booking: ID Relasi yang dimasukkan (seperti Rute/Armada) tidak ditemukan.'
+        message: 'Gagal membuat booking: ID Relasi yang dimasukkan tidak ditemukan.'
       });
     }
 
@@ -454,6 +457,76 @@ exports.getVehicleAvailability = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: 'Gagal mengambil data ketersediaan'
+    });
+  }
+};
+
+// 7. Ambil Data Booking Khusus Client yang Sedang Login (PERBAIKAN SKEMA PRISMA)
+exports.getClientBookings = async (req, res) => {
+  try {
+    const rawUserId = req.user?.id || req.user?.userId;
+    let userEmail = (req.user?.email || req.user?.customerEmail || '').trim().toLowerCase();
+
+    // Jika email tidak ada di dalam token JWT, ambil email client dari database
+    if (!userEmail && rawUserId) {
+      try {
+        const clientAcc =
+          (await prisma.client.findUnique({ where: { id: Number(rawUserId) } }).catch(() => null)) ||
+          (await prisma.user.findUnique({ where: { id: Number(rawUserId) } }).catch(() => null));
+
+        if (clientAcc && clientAcc.email) {
+          userEmail = clientAcc.email.trim().toLowerCase();
+        }
+      } catch (errDb) {
+        console.warn('Gagal mengambil data email client dari DB:', errDb.message);
+      }
+    }
+
+    // Jika email masih tidak ditemukan, kembalikan array kosong
+    if (!userEmail) {
+      return res.json({ success: true, data: [] });
+    }
+
+    let bookings = [];
+
+    // Kueri murni berdasarkan email (Tanpa kolom userId / user_id)
+    try {
+      bookings = await fetchBookingsWithInclude({
+        where: {
+          OR: [
+            { customerEmail: { equals: userEmail, mode: 'insensitive' } },
+            { customerEmail: userEmail }
+          ]
+        },
+        orderBy: { id: 'desc' }
+      });
+    } catch (e1) {
+      try {
+        bookings = await prisma.booking.findMany({
+          where: {
+            OR: [
+              { customer_email: { equals: userEmail, mode: 'insensitive' } },
+              { customer_email: userEmail }
+            ]
+          },
+          orderBy: { id: 'desc' }
+        });
+      } catch (e2) {
+        console.error('Kueri booking gagal:', e2.message);
+        bookings = [];
+      }
+    }
+
+    return res.json({
+      success: true,
+      data: (bookings || []).map(formatBooking)
+    });
+
+  } catch (error) {
+    console.error('Error fatal pada getClientBookings:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Gagal mengambil data pesanan Anda.'
     });
   }
 };

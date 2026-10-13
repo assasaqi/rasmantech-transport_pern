@@ -34,16 +34,72 @@ const API = axios.create({
   },
 });
 
-// 4. Interceptor: Menyisipkan Token Authorization Secara Otomatis
+// 4. Request Interceptor: Menyisipkan Token Berdasarkan Context Route
 API.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('token') || localStorage.getItem('adminToken') || localStorage.getItem('clientToken');
+    // Cek apakah request ditujukan ke endpoint client atau admin
+    const isClientRoute = config.url?.startsWith('/client');
+
+    let token = null;
+    if (isClientRoute) {
+      token = localStorage.getItem('clientToken') || localStorage.getItem('token');
+    } else {
+      token = localStorage.getItem('adminToken') || localStorage.getItem('token') || localStorage.getItem('clientToken');
+    }
+
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
     return config;
   },
   (error) => Promise.reject(error)
+);
+
+// 5. Response Interceptor: Menangani Sesi Habis / Error 403 & 401
+API.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    const status = error.response ? error.response.status : null;
+    const requestUrl = error.config?.url || '';
+
+    const isLoginRequest = requestUrl.includes('/login');
+    const isLoginPage = window.location.pathname.includes('login');
+
+    // A. Jika 404 Not Found -> Redirect ke /not-found
+    if (status === 404 && !isLoginRequest && !isLoginPage) {
+      if (window.location.pathname !== '/not-found') {
+        window.location.href = '/not-found';
+      }
+      return Promise.reject(error);
+    }
+
+    // B. Jika 401 (Unauthorized / Token Expired) -> Auto-Redirect ke Login
+    if (status === 401 && !isLoginRequest && !isLoginPage) {
+      console.warn('Sesi telah habis. Silakan login kembali.');
+
+      localStorage.removeItem('token');
+      localStorage.removeItem('clientToken');
+      localStorage.removeItem('adminToken');
+      localStorage.removeItem('client_user');
+      sessionStorage.clear();
+
+      window.location.href = '/login';
+      return Promise.reject(error);
+    }
+
+    // C. Format pesan error yang ramah pengguna
+    let friendlyMessage = 'Terjadi kesalahan sistem. Silakan coba beberapa saat lagi.';
+
+    if (status >= 500) {
+      friendlyMessage = 'Server sedang mengalami gangguan. Silakan coba lagi nanti.';
+    } else if (status === 400 || status === 401 || status === 403) {
+      friendlyMessage = error.response?.data?.message || 'Akses ditolak atau kredensial salah.';
+    }
+
+    error.userFriendlyMessage = friendlyMessage;
+
+    return Promise.reject(error);
+  }
 );
 
 // ================= API ENDPOINTS =================
@@ -83,7 +139,7 @@ export const updateRoute = (id, formData) =>
   });
 export const deleteRoute = (id) => API.delete(`/routes/${id}`);
 
-// --- Tour Package API (Paket Tour) - BARU ---
+// --- Tour Package API (Paket Tour) ---
 export const getTourPackages = () => API.get('/tour-packages');
 export const getTourPackageBySlug = (slug) => API.get(`/tour-packages/${slug}`);
 export const createTourPackage = (formData) =>
@@ -97,9 +153,10 @@ export const updateTourPackage = (id, formData) =>
 export const deleteTourPackage = (id) => API.delete(`/tour-packages/${id}`);
 
 // --- Booking API ---
-export const getBookings = () => API.get('/bookings');
+export const getBookings = () => API.get('/bookings'); // Khusus Admin
+export const getClientBookings = () => API.get('/client/bookings'); // DITAMBAHKAN: Khusus Client
 export const createBooking = (bookingData) => API.post('/bookings', bookingData);
-export const getBookingByCode = (code) => API.get(`/bookings/track/${code}`); // BARU: Untuk Tracking Pesanan
+export const getBookingByCode = (code) => API.get(`/bookings/track/${code}`);
 export const updateBookingStatus = (id, status) => API.put(`/bookings/${id}/status`, { status });
 export const deleteBooking = (id) => API.delete(`/bookings/${id}`);
 
